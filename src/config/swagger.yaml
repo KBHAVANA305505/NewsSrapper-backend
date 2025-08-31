@@ -1,0 +1,518 @@
+openapi: 3.0.0
+info:
+  title: NewsHub API
+  description: Modern news platform backend API
+  version: 1.0.0
+  contact:
+    name: NewsHub Team
+    email: contact@newshub.com
+
+servers:
+  - url: http://localhost:3001/api
+    description: Development server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [reader, editor, admin]
+        savedArticles:
+          type: array
+          items:
+            type: string
+        readingHistory:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Article:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        content:
+          type: string
+        images:
+          type: array
+          items:
+            type: string
+        category:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        author:
+          type: string
+        lang:
+          type: string
+        sourceId:
+          type: string
+        status:
+          type: string
+          enum: [draft, published, rejected]
+        aiInfo:
+          type: object
+          properties:
+            rewritten:
+              type: boolean
+            plagiarismScore:
+              type: number
+        publishedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+        label:
+          type: string
+        icon:
+          type: string
+        color:
+          type: string
+        parent:
+          type: string
+        order:
+          type: number
+
+    Source:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        rssUrls:
+          type: array
+          items:
+            type: string
+        lang:
+          type: string
+        categories:
+          type: array
+          items:
+            type: string
+        active:
+          type: boolean
+
+    Ticker:
+      type: object
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        priority:
+          type: number
+        expiry:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    JobLog:
+      type: object
+      properties:
+        id:
+          type: string
+        jobType:
+          type: string
+        status:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        meta:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        token:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+
+paths:
+  # Health check
+  /health:
+    get:
+      summary: Health check endpoint
+      tags: [Public]
+      responses:
+        200:
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  timestamp: { type: string }
+                  uptime: { type: number }
+                  environment: { type: string }
+
+  # Authentication endpoints
+  /auth/register:
+    post:
+      summary: Register a new user
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 6 }
+                role:
+                  type: string
+                  enum: [reader, editor, admin]
+                  default: reader
+      responses:
+        201:
+          description: User registered successfully
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        400:
+          description: Invalid input
+        409:
+          description: User already exists
+
+  /auth/login:
+    post:
+      summary: Login user
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        200:
+          description: Login successful
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        401:
+          description: Invalid credentials
+
+  # Articles (public)
+  /articles:
+    get:
+      summary: Get list of articles
+      tags: [Public]
+      parameters:
+        - name: category
+          in: query
+          schema: { type: string }
+        - name: lang
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [latest, popular, trending]
+            default: latest
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10 }
+      responses:
+        200:
+          description: List of articles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  articles:
+                    type: array
+                    items: { $ref: '#/components/schemas/Article' }
+                  pagination:
+                    type: object
+                    properties:
+                      page: { type: integer }
+                      limit: { type: integer }
+                      total: { type: integer }
+                      pages: { type: integer }
+
+  /articles/{slug}:
+    get:
+      summary: Get single article by slug
+      tags: [Public]
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Article details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Article' }
+        404:
+          description: Article not found
+
+  # Admin/Editor Article endpoints
+  /admin/articles:
+    post:
+      summary: Create a new article draft
+      tags: [Admin/Editor]
+      security: [ { BearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Article' }
+      responses:
+        201:
+          description: Article created successfully
+        401:
+          description: Unauthorized
+
+  /admin/articles/{id}:
+    patch:
+      summary: Update an article draft
+      tags: [Admin/Editor]
+      security: [ { BearerAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Article updated successfully
+        401:
+          description: Unauthorized
+        404:
+          description: Article not found
+
+  /admin/articles/{id}/publish:
+    post:
+      summary: Publish an article
+      tags: [Admin/Editor]
+      security: [ { BearerAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Article published successfully
+        401:
+          description: Unauthorized
+        404:
+          description: Article not found
+
+  # Categories (public)
+  /categories:
+    get:
+      summary: Get list of categories
+      tags: [Public]
+      responses:
+        200:
+          description: List of categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Category' }
+
+  # Trending
+  /trending:
+    get:
+      summary: Get trending news
+      tags: [Public]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10 }
+      responses:
+        200:
+          description: List of trending articles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Article' }
+
+  # Tickers
+  /ticker/active:
+    get:
+      summary: Get active breaking news tickers
+      tags: [Public]
+      responses:
+        200:
+          description: List of active tickers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Ticker' }
+
+  # Source management
+  /admin/sources:
+    post:
+      summary: Add a news source
+      tags: [Admin/Editor]
+      security: [ { BearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Source' }
+      responses:
+        201:
+          description: Source created successfully
+        401:
+          description: Unauthorized
+
+    get:
+      summary: Get list of sources
+      tags: [Admin/Editor]
+      security: [ { BearerAuth: [] } ]
+      responses:
+        200:
+          description: List of sources
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Source' }
+        401:
+          description: Unauthorized
+
+  /admin/sources/{id}:
+    patch:
+      summary: Update a source
+      tags: [Admin/Editor]
+      security: [ { BearerAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Source updated successfully
+        401:
+          description: Unauthorized
+        404:
+          description: Source not found
+
+  # Category management
+  /admin/categories:
+    post:
+      summary: Create a category
+      tags: [Admin/Editor]
+      security: [ { BearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Category' }
+      responses:
+        201:
+          description: Category created successfully
+        401:
+          description: Unauthorized
+
+  /admin/categories/{id}:
+    patch:
+      summary: Update a category
+      tags: [Admin/Editor]
+      security: [ { BearerAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Category updated successfully
+        401:
+          description: Unauthorized
+        404:
+          description: Category not found
+
+  # Ingest
+  /admin/ingest/run:
+    post:
+      summary: Manually trigger scraping
+      tags: [Admin/Editor]
+      security: [ { BearerAuth: [] } ]
+      responses:
+        200:
+          description: Scraping job triggered
+        401:
+          description: Unauthorized
