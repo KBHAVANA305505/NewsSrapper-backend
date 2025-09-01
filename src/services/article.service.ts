@@ -1,9 +1,11 @@
 import { Article, Category } from '../models';
 import { GetArticlesQuery, GetTrendingQuery } from '../utils/validation';
-import { redisClient } from '../index';
+
 import { logger } from '../utils/logger';
 import crypto from 'crypto';
 import slugify from 'slugify';
+import { redisClient } from "../utils/redis";
+
 
 export class ArticleService {
   async createArticle(data: any) {

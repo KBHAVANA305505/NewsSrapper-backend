@@ -24,7 +24,7 @@ export class JobProcessor {
     this.plagiarismService = new PlagiarismService();
   }
 
-  async processScrapingJob(job: Job) {
+async processScrapingJob(job: Job) {
     const startTime = new Date();
     let jobLog: any;
 
@@ -54,15 +54,19 @@ export class JobProcessor {
       for (const source of sources) {
         try {
           const scrapedArticles = await this.scrapingService.scrapeSource(source);
-          totalArticles += scrapedArticles.length;
 
-          // Process each scraped article
-          for (const scrapedArticle of scrapedArticles) {
-            try {
-              await this.processScrapedArticle(scrapedArticle, source);
-              successfulArticles++;
-            } catch (error) {
-              logger.error(`Error processing scraped article:`, error);
+          // ✅ FIX: Check if scrapedArticles is an array before using it
+          if (Array.isArray(scrapedArticles)) {
+            totalArticles += scrapedArticles.length;
+
+            // Process each scraped article
+            for (const scrapedArticle of scrapedArticles) {
+              try {
+                await this.processScrapedArticle(scrapedArticle, source);
+                successfulArticles++;
+              } catch (error) {
+                logger.error(`Error processing scraped article:`, error);
+              }
             }
           }
 

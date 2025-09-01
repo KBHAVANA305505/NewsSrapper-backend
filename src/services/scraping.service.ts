@@ -2,7 +2,7 @@ import Parser from 'rss-parser';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import crypto from 'crypto';
-import { Source, Article, Category, JobLog } from '../models';
+import { Source, Article, Category } from '../models';
 import { logger } from '../utils/logger';
 
 export interface ScrapedArticle {
@@ -29,8 +29,8 @@ export interface ScrapedArticle {
     title?: string;
     description?: string;
   };
-  sourceId: string; // Add this line
-  slug: string;     // Add this line
+  sourceId: string;
+  slug: string;
 }
 
 export class ScrapingService {
@@ -40,7 +40,7 @@ export class ScrapingService {
     this.rssParser = new Parser();
   }
 
-  async scrapeAllSources() {
+  async scrapeAllSources(): Promise<void> {
     try {
       logger.info('Starting scraping for all sources');
       
@@ -54,6 +54,8 @@ export class ScrapingService {
             continue; 
           }
           
+          // Note: The job processor will handle the result of scrapeSource.
+          // This method just triggers the process for all.
           await this.scrapeSource(source);
           
           await Source.findByIdAndUpdate(source._id, { lastScraped: new Date() });
@@ -69,7 +71,9 @@ export class ScrapingService {
     }
   }
 
-  async scrapeSource(source: any) {
+  
+  async scrapeSource(source: any): Promise<ScrapedArticle[]> {
+    const successfullyScrapedArticles: ScrapedArticle[] = [];
     try {
       logger.info(`Scraping source: ${source.name}`);
       
@@ -81,21 +85,21 @@ export class ScrapingService {
             try {
               const scrapedArticle = await this.scrapeArticle(item, source);
               if (scrapedArticle) {
-                try {
-                  await Article.create(scrapedArticle);
-                  logger.info(`Successfully saved article: ${scrapedArticle.title}`);
-                } catch (dbError) {
-                  logger.error(`Failed to save article "${scrapedArticle.title}" to database:`, dbError);
-                }
+                // FIX: Add valid articles to the array instead of saving here
+                successfullyScrapedArticles.push(scrapedArticle);
               }
             } catch (error) {
-              logger.error(`Error scraping article from ${source.name}:`, error);
+              logger.error(`Error processing article item from ${source.name}:`, error);
             }
           }
         } catch (error) {
           logger.error(`Error parsing RSS feed ${rssUrl}:`, error);
         }
       }
+
+      logger.info(`Scraped ${successfullyScrapedArticles.length} articles from ${source.name}`);
+      // FIX: Return the array of scraped articles
+      return successfullyScrapedArticles;
     } catch (error) {
       logger.error(`Scrape source error for ${source.name}:`, error);
       throw error;
@@ -113,8 +117,14 @@ export class ScrapingService {
         return null;
       }
       
-      const slug = this.generateSlug(title); // You need to implement this helper function
-      const sourceId = source._id; 
+      const hash = this.generateHash(title + link);
+      
+      const existingArticle = await Article.findOne({ hash });
+      if (existingArticle) {
+        logger.debug(`Duplicate article found, skipping: ${title}`);
+        return null;
+      }
+
       const fullContent = await this.fetchArticleContent(link);
       const openGraphData = await this.extractOpenGraphData(link);
       const images = this.extractImages(fullContent, link, openGraphData);
@@ -128,16 +138,10 @@ export class ScrapingService {
         });
       }
       
-      const hash = this.generateHash(title + summary + source._id.toString());
-      
-      const existingArticle = await Article.findOne({ hash });
-      if (existingArticle) {
-        logger.debug(`Duplicate article found: ${title}`);
-        return null;
-      }
-
       const category = await this.determineCategory(title, summary, source.categories);
       const tags = this.extractTags(title, summary, fullContent);
+      const slug = this.generateSlug(title);
+      const sourceId = source._id.toString();
 
       return {
         title,
@@ -151,8 +155,8 @@ export class ScrapingService {
         sourceUrl: link,
         publishedAt,
         hash,
-        sourceId: sourceId, 
-        slug: slug, 
+        sourceId, 
+        slug, 
         openGraph: openGraphData
       };
     } catch (error) {
@@ -160,15 +164,16 @@ export class ScrapingService {
       return null;
     }
   }
+  
+  // --- Helper Functions ---
 
-  // --- Add this helper function to your class ---
-private generateSlug(title: string): string {
+  private generateSlug(title: string): string {
     return title
         .toLowerCase()
         .replace(/[^a-z0-9\s-]/g, '')
         .trim()
         .replace(/\s+/g, '-');
-}
+  }
 
   private async fetchArticleContent(url: string): Promise<string> {
     try {
@@ -186,30 +191,24 @@ private generateSlug(title: string): string {
       let content = '';
       
       const contentSelectors = [
-        'article',
-        '.article',
-        '.content',
-        '.post-content',
-        '.entry-content',
-        '.story-content',
-        'main',
-        '.main-content',
-        '#content',
+        'article', '.article', '.content', '.post-content', 
+        '.entry-content', '.story-content', 'main', 
+        '.main-content', '#content',
       ];
 
       for (const selector of contentSelectors) {
         const element = $(selector);
         if (element.length > 0) {
-          content = element.text();
-          break;
+          content = element.html() || '';
+          if (content) break;
         }
       }
 
       if (!content) {
-        content = $('body').text();
+        content = $('body').html() || '';
       }
 
-      return this.cleanText(content);
+      return this.cleanContent(content);
     } catch (error) {
       logger.error(`Fetch article content error for ${url}:`, error);
       return '';
@@ -244,12 +243,12 @@ private generateSlug(title: string): string {
         if (src) {
           const fullUrl = src.startsWith('http') ? src : new URL(src, baseUrl).href;
           
-          if (width > 50 && height > 50 || (width === 0 && height === 0)) {
+          if (width > 50 && height > 50) {
             images.push({
               url: fullUrl,
               alt,
-              width: width > 0 ? width : undefined,
-              height: height > 0 ? height : undefined,
+              width,
+              height,
               source: 'scraped'
             });
           }
@@ -373,15 +372,14 @@ private generateSlug(title: string): string {
       const text = (title + ' ' + summary + ' ' + content).toLowerCase();
       const tags: string[] = [];
 
-      const commonWords = ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should'];
+      const commonWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should']);
       
-      const words = text.split(/\s+/).filter(word => word.length > 3 && !commonWords.includes(word));
+      const words = text.match(/\b(\w{4,})\b/g) || [];
       
       const wordCount: { [key: string]: number } = {};
       words.forEach(word => {
-        const cleanWord = word.replace(/[^\w]/g, '');
-        if (cleanWord) {
-          wordCount[cleanWord] = (wordCount[cleanWord] || 0) + 1;
+        if (!commonWords.has(word)) {
+          wordCount[word] = (wordCount[word] || 0) + 1;
         }
       });
 
@@ -399,19 +397,17 @@ private generateSlug(title: string): string {
 
   private extractAuthor(content: string): string | null {
     try {
-      const authorPatterns = [
-        /by\s+([A-Z][a-z]+\s+[A-Z][a-z]+)/gi,
-        /author:\s*([A-Z][a-z]+\s+[A-Z][a-z]+)/gi,
-        /written\s+by\s+([A-Z][a-z]+\s+[A-Z][a-z]+)/gi,
+      const $ = cheerio.load(content);
+      const authorSelectors = [
+          '.author', '[rel="author"]', '[itemprop="author"]', 
+          'a[href*="/author/"]', '.byline'
       ];
-
-      for (const pattern of authorPatterns) {
-        const match = content.match(pattern);
-        if (match) {
-          return match[0].replace(/by\s+|author:\s*|written\s+by\s+/gi, '').trim();
-        }
+      for (const selector of authorSelectors) {
+          const authorText = $(selector).first().text().trim();
+          if (authorText) {
+              return authorText.replace(/by/i, '').trim();
+          }
       }
-
       return null;
     } catch (error) {
       logger.error('Extract author error:', error);
@@ -435,12 +431,5 @@ private generateSlug(title: string): string {
       logger.error('Clean content error:', error);
       return html;
     }
-  }
-
-  private cleanText(text: string): string {
-    return text
-      .replace(/\s+/g, ' ')
-      .replace(/\n\s*\n/g, '\n\n')
-      .trim();
   }
 }
