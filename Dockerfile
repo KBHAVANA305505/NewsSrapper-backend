@@ -1,4 +1,4 @@
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package files and install ALL dependencies (including dev dependencies)
@@ -14,7 +14,7 @@ RUN npm run build
 
 # ---- Production Stage ----
 # This is the final, lean image that will run on Render.
-FROM node:18-alpine AS production
+FROM node:20-alpine AS production
 
 WORKDIR /app
 
