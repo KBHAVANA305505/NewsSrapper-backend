@@ -55,7 +55,7 @@ async processScrapingJob(job: Job) {
         try {
           const scrapedArticles = await this.scrapingService.scrapeSource(source);
 
-          // ✅ FIX: Check if scrapedArticles is an array before using it
+          // FIX: Check if scrapedArticles is an array before using it
           if (Array.isArray(scrapedArticles)) {
             totalArticles += scrapedArticles.length;
 
@@ -745,16 +745,15 @@ async processScrapingJob(job: Job) {
         tags: scrapedArticle.tags,
         author: scrapedArticle.author,
         lang: scrapedArticle.lang,
-        sourceId: source._id,
+        sourceId: scrapedArticle.sourceId,
         status: 'draft',
         hash: scrapedArticle.hash,
         publishedAt: scrapedArticle.publishedAt,
+        slug: scrapedArticle.slug,
       });
 
       await article.save();
-
-      // Queue AI rewriting job
-      // This will be handled by the job queue system
+      
       logger.info(`Created article draft: ${article.title}`);
 
       return article;
