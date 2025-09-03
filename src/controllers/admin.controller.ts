@@ -280,7 +280,7 @@ export class AdminController {
   // Ingest management
   triggerIngest = async (req: Request, res: Response) => {
     try {
-      await this.scrapingService.scrapeAllSources();
+      
       res.json({
         success: true,
         message: 'Scraping job triggered successfully',
