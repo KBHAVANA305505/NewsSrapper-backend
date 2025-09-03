@@ -1,103 +1,63 @@
+// src/index.ts
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import { createClient } from 'redis';
+import { Queue, Worker } from 'bullmq'; 
+import IORedis from 'ioredis';        
+import cron from 'node-cron';       
 import { setupRoutes } from './routes';
 import { setupMiddleware } from './middleware';
 import { logger } from './utils/logger';
 import { setupSwagger } from './config/swagger';
-
+import { JobProcessor } from './jobs/job.processor'; 
 const app = express();
-const PORT: number = parseInt(process.env.PORT || "3001", 10);
+const PORT: number = parseInt(process.env.PORT || "8080", 10);
 
-app.use(cors({
-  origin: 'http://localhost:3000'
-}));
+// Setup Express Middleware
+app.use(cors({ origin: 'http://localhost:3000' }));
+setupMiddleware(app);
+setupRoutes(app);
+setupSwagger(app);
 
-// Initialize Redis client
-export const redisClient = createClient({
-  url: process.env.REDIS_URL,
+// Create a reusable Redis connection for BullMQ
+const redisConnection = new IORedis(process.env.REDIS_URL!, {
+  maxRetriesPerRequest: null,
 });
 
-redisClient.on('error', (err) => {
-  logger.error('Redis Client Error:', err);
+// 1. THE SCHEDULER: Adds a job to the queue every 15 minutes
+const scrapingQueue = new Queue('scraping-queue', { connection: redisConnection });
+
+cron.schedule('*/15 * * * *', async () => {
+  logger.info('Scheduler running: Adding scrape-source job to the queue.');
+  await scrapingQueue.add('scrape-source', {});
 });
+logger.info('Cron job scheduled to run every 15 minutes.');
 
-redisClient.on('connect', () => {
-  logger.info('Connected to Redis');
-});
+// 2. THE WORKER: Processes jobs from the queue
+const processor = new JobProcessor();
+const worker = new Worker('scraping-queue', async (job) => {
+  logger.info(`Worker processing job: ${job.id} of type ${job.name}`);
+  if (job.name === 'scrape-source') {
+    await processor.processScrapingJob(job);
+  }
+}, { connection: redisConnection });
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI || '')
-  .then(() => {
-    logger.info('Connected to MongoDB');
-  })
-  .catch((err) => logger.error('MongoDB connection error:', err));
+worker.on('completed', (job) => logger.info(`Job ${job.id} has completed.`));
+worker.on('failed', (job, err) => logger.error(`Job ${job?.id} has failed: ${err.message}`));
+logger.info('BullMQ worker is running and listening for jobs.');
 
-// Add a check to ensure Redis is connected
-async function startServer() {
-  try {
-    await redisClient.connect();
-    logger.info('Redis client connected successfully.');
-  } catch (err) {
-    logger.error('Redis connection failed:', err);
-    process.exit(1);
-  }
 
-  // Setup middleware
-  setupMiddleware(app);
-
-  // Setup routes
-  setupRoutes(app);
-
-  // Setup Swagger
-  setupSwagger(app);
-
-  // Health check endpoint
-  app.get('/health', (req, res) => {
-    res.json({
-      status: 'OK',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      environment: process.env.NODE_ENV,
-    });
-  });
-
-  // Error handling middleware
-  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    logger.error('Error:', err);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong',
-    });
-  });
-
-  // 404 handler
-  app.use('*', (req, res) => {
-    res.status(404).json({ error: 'Route not found' });
-  });
-
-  // Start server
-  app.listen(PORT, 'localhost', () => {
-    logger.info(`Server running on port ${PORT}`);
-    logger.info(`Swagger docs available at http://localhost:${PORT}/api-docs`);
+// Connect to MongoDB and start the server
+mongoose.connect(process.env.MONGO_URI!)
+  .then(() => {
+    logger.info('Connected to MongoDB');
+    app.listen(PORT, '0.0.0.0', () => { // Use 0.0.0.0 for Render compatibility
+      logger.info(`Server, Worker, and Scheduler running on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    logger.error('MongoDB connection error:', err);
+    process.exit(1);
   });
-}
-
-startServer();
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  await mongoose.connection.close();
-  await redisClient.quit();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  await mongoose.connection.close();
-  await redisClient.quit();
-  process.exit(0);
-});
