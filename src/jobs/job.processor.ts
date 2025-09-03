@@ -746,14 +746,14 @@ async processScrapingJob(job: Job) {
         author: scrapedArticle.author,
         lang: scrapedArticle.lang,
         sourceId: scrapedArticle.sourceId,
-        status: 'draft',
+        status: 'published',
         hash: scrapedArticle.hash,
         publishedAt: scrapedArticle.publishedAt,
         slug: scrapedArticle.slug,
       });
 
       await article.save();
-      
+
       logger.info(`Created article draft: ${article.title}`);
 
       return article;
