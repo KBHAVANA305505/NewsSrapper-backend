@@ -1,11 +1,17 @@
+import { createClient } from 'redis';
 import { Ticker } from '../models';
-import { redisClient } from '../index';
 import { logger } from '../utils/logger';
+
+// Create a dedicated Redis client for this service
+const redisClient = createClient({ url: process.env.REDIS_URL });
+redisClient.on('error', (err) => logger.error('TickerService Redis Error:', err));
+if (!redisClient.isOpen) {
+  redisClient.connect();
+}
 
 export class TickerService {
   async getActiveTickers() {
     try {
-      // Try to get from cache first
       const cacheKey = 'tickers:active';
       const cachedTickers = await redisClient.get(cacheKey);
       
@@ -13,15 +19,14 @@ export class TickerService {
         return JSON.parse(cachedTickers);
       }
 
-      // Get active tickers from database
       const now = new Date();
       const tickers = await Ticker.find({
         expiry: { $gt: now },
       })
         .sort({ priority: -1, createdAt: -1 });
 
-      // Cache for 5 minutes
-      await redisClient.setEx(cacheKey, 300, JSON.stringify(tickers));
+      //  FIX: Use the correct syntax for the redis v4 library
+      await redisClient.set(cacheKey, JSON.stringify(tickers), { EX: 300 });
 
       return tickers;
     } catch (error) {
@@ -34,10 +39,7 @@ export class TickerService {
     try {
       const ticker = new Ticker(data);
       await ticker.save();
-      
-      // Clear tickers cache
       await this.clearTickersCache();
-      
       return ticker;
     } catch (error) {
       logger.error('Create ticker error:', error);
@@ -51,10 +53,7 @@ export class TickerService {
       if (!ticker) {
         throw new Error('Ticker not found');
       }
-      
-      // Clear tickers cache
       await this.clearTickersCache();
-      
       return ticker;
     } catch (error) {
       logger.error('Update ticker error:', error);
@@ -68,10 +67,7 @@ export class TickerService {
       if (!ticker) {
         throw new Error('Ticker not found');
       }
-      
-      // Clear tickers cache
       await this.clearTickersCache();
-      
       return ticker;
     } catch (error) {
       logger.error('Delete ticker error:', error);

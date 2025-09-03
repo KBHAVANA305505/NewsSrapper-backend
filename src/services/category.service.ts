@@ -1,25 +1,27 @@
+import { createClient } from 'redis';
 import { Category } from '../models';
-import { redisClient } from '../index';
 import { logger } from '../utils/logger';
 
+// Create a dedicated Redis client for this service
+const redisClient = createClient({ url: process.env.REDIS_URL });
+redisClient.on('error', (err) => logger.error('CategoryService Redis Error:', err));
+if (!redisClient.isOpen) {
+  redisClient.connect();
+}
 export class CategoryService {
   async getCategories() {
     try {
-      // Try to get from cache first
       const cacheKey = 'categories:all';
       const cachedCategories = await redisClient.get(cacheKey);
-      
       if (cachedCategories) {
         return JSON.parse(cachedCategories);
       }
-
-      // Get from database
       const categories = await Category.find()
         .sort({ order: 1, label: 1 })
         .populate('parent', 'key label');
 
-      // Cache for 1 hour
-      await redisClient.setEx(cacheKey, 3600, JSON.stringify(categories));
+      // FIX: Use the correct syntax for the redis v4 library
+      await redisClient.set(cacheKey, JSON.stringify(categories), { EX: 3600 });
 
       return categories;
     } catch (error) {
@@ -45,10 +47,7 @@ export class CategoryService {
     try {
       const category = new Category(data);
       await category.save();
-      
-      // Clear categories cache
       await this.clearCategoriesCache();
-      
       return category;
     } catch (error) {
       logger.error('Create category error:', error);
@@ -62,10 +61,7 @@ export class CategoryService {
       if (!category) {
         throw new Error('Category not found');
       }
-      
-      // Clear categories cache
       await this.clearCategoriesCache();
-      
       return category;
     } catch (error) {
       logger.error('Update category error:', error);
@@ -79,10 +75,7 @@ export class CategoryService {
       if (!category) {
         throw new Error('Category not found');
       }
-      
-      // Clear categories cache
       await this.clearCategoriesCache();
-      
       return category;
     } catch (error) {
       logger.error('Delete category error:', error);
