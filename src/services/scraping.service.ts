@@ -38,18 +38,14 @@ export class ScrapingService {
     try {
       logger.info(`Scraping top headlines using News API for source: ${source.name}`);
       
-      // We are changing the endpoint from /top-headlines to /everything
-      // and searching for the keyword "bitcoin" to find new articles.
-      const response = await axios.get('https://newsapi.org/v2/everything', {
+      const response = await axios.get('https://newsapi.org/v2/top-headlines', {
         params: {
-          q: 'bitcoin',
-          sortBy: 'publishedAt',
-          language: 'en',
+          country: 'in', // Changed to 'in' for India. You can use 'us' or another country code.
           apiKey: newsApiKey,
-          pageSize: 20
+          pageSize: 40 // Fetch up to 40 of the latest headlines
         },
       });
-
+      
       const articlesFromAPI = response.data.articles;
       const scrapedArticles: ScrapedArticle[] = [];
 
