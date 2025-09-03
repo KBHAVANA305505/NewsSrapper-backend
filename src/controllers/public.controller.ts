@@ -94,9 +94,9 @@ export class PublicController {
         }
         filter.status = validatedQuery.status;
         const result = await this.articleService.getArticles(filter, validatedQuery);
-        res.json({
+        return res.json({
           success: true,
-          data: result,
+          data: result.articles,
         });
       }
     } catch (error) {

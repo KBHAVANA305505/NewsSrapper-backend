@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import cors from 'cors';
 import mongoose from 'mongoose';
 import { createClient } from 'redis';
 import { setupRoutes } from './routes';
@@ -10,9 +11,13 @@ import { setupSwagger } from './config/swagger';
 const app = express();
 const PORT: number = parseInt(process.env.PORT || "3001", 10);
 
+app.use(cors({
+  origin: 'http://localhost:3000'
+}));
+
 // Initialize Redis client
 export const redisClient = createClient({
-  url: process.env.REDIS_URL,
+  url: process.env.REDIS_URL,
 });
 
 redisClient.on('error', (err) => {
@@ -74,10 +79,10 @@ async function startServer() {
   });
 
   // Start server
-  app.listen(PORT, () => {
-    logger.info(`Server running on port ${PORT}`);
-    logger.info(`Swagger docs available at http://localhost:${PORT}/api-docs`);
-  });
+  app.listen(PORT, 'localhost', () => {
+    logger.info(`Server running on port ${PORT}`);
+    logger.info(`Swagger docs available at http://localhost:${PORT}/api-docs`);
+  });
 }
 
 startServer();

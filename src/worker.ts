@@ -1,44 +1,42 @@
-import { createWorkers, scheduleScrapingJob } from './config/bullmq';
+
+import 'dotenv/config';
+import { Worker } from 'bullmq';
+import IORedis from 'ioredis'; //  1. Import IORedis
+import { JobProcessor } from './jobs/job.processor';
 import { logger } from './utils/logger';
-import mongoose from 'mongoose'; // Import mongoose
-import dotenv from 'dotenv';
 
-// Load environment variables
-dotenv.config();
+const processor = new JobProcessor();
 
-async function startWorker() {
+//  2. Create a new connection instance using IORedis
+const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
+  maxRetriesPerRequest: null // Important for BullMQ
+});
+
+// Create a new worker that will process jobs from the 'scraping-queue'
+const worker = new Worker('scraping-queue', async (job) => {
+  logger.info(`Worker processing job: ${job.id} of type ${job.name}`);
+  
   try {
-    logger.info('Starting NewsHub worker...');
-
-    // Connect to MongoDB
-    await mongoose.connect(process.env.MONGO_URI || '');
-    logger.info('Worker connected to MongoDB');
-
-    // Create and start workers
-    createWorkers();
-    logger.info('Workers created successfully');
-
-    // Schedule the recurring scraping job
-    await scheduleScrapingJob();
-    logger.info('Scraping job scheduled to run every 5 minutes');
-
-    // Graceful shutdown
-    process.on('SIGTERM', () => {
-      logger.info('SIGTERM received, shutting down worker gracefully');
-      process.exit(0);
-    });
-
-    process.on('SIGINT', () => {
-      logger.info('SIGINT received, shutting down worker gracefully');
-      process.exit(0);
-    });
-
-    logger.info('Worker started successfully');
+    switch (job.name) {
+      case 'scrape-source':
+        await processor.processScrapingJob(job);
+        break;
+      // Add more cases here for other job types in the future
+      default:
+        throw new Error(`Unknown job name: ${job.name}`);
+    }
   } catch (error) {
-    logger.error('Failed to start worker:', error);
-    process.exit(1);
+    logger.error(`Job ${job.id} failed:`, error);
+    throw error; // Re-throw to let BullMQ know the job failed
   }
-}
+}, { connection }); //  3. Use the new IORedis connection
 
-// Start the worker
-startWorker();
+worker.on('completed', (job) => {
+  logger.info(`Job ${job.id} has completed successfully.`);
+});
+
+worker.on('failed', (job, err) => {
+  logger.error(`Job ${job?.id} has failed with error: ${err.message}`);
+});
+
+logger.info('Worker is running and waiting for jobs...');

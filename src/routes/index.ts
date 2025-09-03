@@ -15,7 +15,7 @@ export function setupRoutes(app: any) {
   const apiRouter = Router();
 
   // Mount other routers to the API router
-  apiRouter.use('/', publicRoutes);
+  apiRouter.use('/public', publicRoutes);
   apiRouter.use('/auth', authRoutes);
   apiRouter.use('/admin', adminRoutes);
   apiRouter.use('/ingest', ingestRoutes); // Mount the ingest routes
