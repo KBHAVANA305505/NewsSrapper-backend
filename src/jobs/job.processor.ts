@@ -733,12 +733,14 @@ async processScrapingJob(job: Job) {
     }
   }
 
+// in src/jobs/job.processor.ts
+
   private async processScrapedArticle(scrapedArticle: ScrapedArticle, source: any) {
     try {
-      // Create article draft
+      // Step 1: Save the initial article draft
       const article = new Article({
         title: scrapedArticle.title,
-        summary: scrapedArticle.summary,
+        summary: scrapedArticle.summary, // Initially save the scraped summary
         content: scrapedArticle.content,
         images: scrapedArticle.images,
         category: scrapedArticle.category,
@@ -751,10 +753,19 @@ async processScrapingJob(job: Job) {
         publishedAt: scrapedArticle.publishedAt,
         slug: scrapedArticle.slug,
       });
-
       await article.save();
-
       logger.info(`Created article draft: ${article.title}`);
+
+      // ✅ Step 2: Generate a new summary using the AI Service
+      const aiSummary = await this.aiService.generateSummary(article.title, article.content);
+
+      //  Step 3: If a new summary was generated, update the article
+      if (aiSummary) {
+        article.summary = aiSummary;
+        article.aiInfo.rewritten = true; // Mark that AI has processed it
+        await article.save();
+        logger.info(`Updated article with AI-generated summary: ${article.title}`);
+      }
 
       return article;
     } catch (error) {
