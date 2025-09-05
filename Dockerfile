@@ -13,12 +13,13 @@ COPY . .
 # Run the build command to compile TypeScript
 RUN npm run build
 
-
-# ---- Production Stage ----
 # This is the final, lean image that will run on Render.
 FROM node:20-alpine AS production
 
 WORKDIR /app
+
+COPY .z-ai-config ./
+
 
 # Copy package files and install ONLY production dependencies
 COPY package*.json ./
