@@ -1,6 +1,8 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+COPY .z-ai-config ./
+
 # Copy package files and install ALL dependencies (including dev dependencies)
 COPY package*.json ./
 RUN npm ci
